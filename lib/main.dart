@@ -50,7 +50,7 @@ class MyCrud extends StatelessWidget {
         ),
       ),
       //home: HomeScreen(),
-      home: AuthGate(), // Agora chamamos
+      home: const AuthGate(), // Agora chamamos
     );
   }
 }
@@ -70,7 +70,7 @@ class AuthGate extends StatelessWidget {
           );
         }
         if (snapshot.hasData) {
-          return const HomeScreen(); // user != null - Aqui chamamos a home somente se estiver logado
+          return HomeScreen(key: ValueKey(snapshot.data!.uid)); // user != null - Aqui chamamos a home somente se estiver logado
         }
         return const LoginPage(); // user == null - Aqui retorna para a página de login caso não tiver login
       },

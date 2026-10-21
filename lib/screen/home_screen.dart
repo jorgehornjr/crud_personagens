@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../models/personagem.dart';
 import '../services/auth_service.dart';
+import '../services/missao_service.dart';
 
 const _fundo = Color(0xFF14100C);
 const _pergaminho = Color(0xFF241B13);
@@ -24,19 +25,20 @@ class _HomeScreenState extends State<HomeScreen> {
   final _auth = AuthService();
 
   final PersonagemService _service = PersonagemService();
+  final MissaoService _missoes = MissaoService();
   final TextEditingController _nomeController = TextEditingController();
   final TextEditingController _vidaController = TextEditingController();
   final TextEditingController _forcaController = TextEditingController();
 
   @override
-  void dispose(){
+  void dispose() {
     _nomeController.dispose();
     _vidaController.dispose();
     _forcaController.dispose();
     super.dispose();
   }
 
-  Future<void> _criarHeroi() async{
+  Future<void> _criarHeroi() async {
     final nome = _nomeController.text.trim();
     if (nome.isEmpty) return;
 
@@ -50,13 +52,86 @@ class _HomeScreenState extends State<HomeScreen> {
     _nomeController.clear();
   }
 
-  Future<void> _atacar(Personagem p) async{
+  Future<void> _atacar(Personagem p) async {
     final novaVida = (p.vida! - 20).clamp(0, 9999);
     await _service.tomarDano(p.id!, novaVida);
   }
 
   Future<void> _curar(Personagem p) =>
       _service.tomarDano(p.id!, (p.vida! + 20).clamp(0, _vidaMax));
+
+  Future<void> _registrarMissao() async {
+    String titulo = '';
+    final confirmar = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Missão concluída'),
+        content: TextField(
+          autofocus: true,
+          decoration: const InputDecoration(labelText: 'Título da missão'),
+          onChanged: (valor) => titulo = valor,
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancelar'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Salvar'),
+          ),
+        ],
+      ),
+    );
+    if (confirmar != true || titulo.trim().isEmpty) return;
+    try {
+      await _missoes.concluirMissao(titulo);
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Não foi possível salvar a missão.')),
+      );
+    }
+  }
+
+  void _listarMissoes() {
+    showModalBottomSheet<void>(
+      context: context,
+      builder: (context) => Padding(
+        padding: const EdgeInsets.all(16),
+        child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+          stream: _missoes.listarMissoes(),
+          builder: (context, snapshot) {
+            if (snapshot.hasError) {
+              return const Center(child: Text('Erro ao carregar missões.'));
+            }
+            if (!snapshot.hasData) {
+              return const Center(child: CircularProgressIndicator());
+            }
+            final docs = snapshot.data!.docs;
+            if (docs.isEmpty) {
+              return const Center(child: Text('Nenhuma missão concluída.'));
+            }
+            return ListView.builder(
+              itemCount: docs.length,
+              itemBuilder: (context, index) {
+                final dados = docs[index].data();
+                final data = (dados['concluidaEm'] as Timestamp?)?.toDate();
+                final dia = data == null
+                    ? 'Salvando data...'
+                    : '${data.day}/${data.month}/${data.year}';
+                return ListTile(
+                  leading: const Icon(Icons.check_circle, color: _ouro),
+                  title: Text(dados['titulo'] as String),
+                  subtitle: Text(dia),
+                );
+              },
+            );
+          },
+        ),
+      ),
+    );
+  }
 
   // Escolhe o ícone do herói pela "classe" digitada no nome
   IconData _iconeDe(String nome) {
@@ -89,6 +164,19 @@ class _HomeScreenState extends State<HomeScreen> {
           child: Column(
             children: [
               _cabecalho(),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  TextButton(
+                    onPressed: _registrarMissao,
+                    child: const Text('Concluir missão'),
+                  ),
+                  TextButton(
+                    onPressed: _listarMissoes,
+                    child: const Text('Ver missões'),
+                  ),
+                ],
+              ),
               _formulario(),
               _tituloSecao('⚔  LISTA DE HERÓIS  ⚔'),
               Expanded(child: _listaHerois()),
@@ -102,49 +190,50 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget _cabecalho() {
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 16, 4, 8),
-      child: Stack(
-        alignment: Alignment.center,
+      child: Row(
         children: [
-          Column(
-            children: [
-              const Text(
-                "THE DEV'S QUEST",
-                style: TextStyle(
-                  fontSize: 26,
-                  fontWeight: FontWeight.bold,
-                  letterSpacing: 3,
-                  color: _ouro,
-                  shadows: [Shadow(color: Colors.black, blurRadius: 6)],
+          const SizedBox(width: 48),
+          Expanded(
+            child: Column(
+              children: [
+                const FittedBox(
+                  fit: BoxFit.scaleDown,
+                  child: Text(
+                    "THE DEV'S QUEST",
+                    style: TextStyle(
+                      fontSize: 26,
+                      fontWeight: FontWeight.bold,
+                      letterSpacing: 3,
+                      color: _ouro,
+                      shadows: [Shadow(color: Colors.black, blurRadius: 6)],
+                    ),
+                  ),
                 ),
-              ),
-              // Aqui mostra quem está logado
-              Text(
-                _auth.usuarioAtual?.email ?? '',
-                style: const TextStyle(color: _textoClaro, fontSize: 12),
-              ),
-              const SizedBox(height: 4),
-              Container(
-                height: 2,
-                width: 140,
-                decoration: const BoxDecoration(
-                  gradient: LinearGradient(colors: [
-                    Colors.transparent,
-                    _ouro,
-                    Colors.transparent,
-                  ]),
+                // Aqui mostra quem está logado
+                Text(
+                  _auth.usuarioAtual?.email ?? '',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(color: _textoClaro, fontSize: 12),
                 ),
-              ),
-            ],
+                const SizedBox(height: 4),
+                Container(
+                  height: 2,
+                  width: 140,
+                  decoration: const BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: [Colors.transparent, _ouro, Colors.transparent],
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ),
           // Botão para logout. O AuthGate leva de volta ao Login sozinho
-          Positioned(
-            right: 0,
-            top: 0,
-            child: IconButton(
-              tooltip: 'Sair',
-              onPressed: _auth.sair,
-              icon: const Icon(Icons.logout, color: _ouro),
-            ),
+          IconButton(
+            tooltip: 'Sair',
+            onPressed: _auth.sair,
+            icon: const Icon(Icons.logout, color: _ouro),
           ),
         ],
       ),
@@ -246,8 +335,10 @@ class _HomeScreenState extends State<HomeScreen> {
       builder: (context, snapshot) {
         if (snapshot.hasError) {
           return Center(
-            child: Text('Erro: ${snapshot.error}',
-                style: const TextStyle(color: Colors.redAccent)),
+            child: Text(
+              'Erro: ${snapshot.error}',
+              style: const TextStyle(color: Colors.redAccent),
+            ),
           );
         }
         if (snapshot.connectionState == ConnectionState.waiting) {
@@ -260,7 +351,10 @@ class _HomeScreenState extends State<HomeScreen> {
             child: Text(
               'A coleção aguarda seu primeiro herói...',
               style: TextStyle(
-                  color: _borda, fontStyle: FontStyle.italic, fontSize: 15),
+                color: _borda,
+                fontStyle: FontStyle.italic,
+                fontSize: 15,
+              ),
             ),
           );
         }
@@ -336,17 +430,25 @@ class _HomeScreenState extends State<HomeScreen> {
                       const SizedBox(height: 2),
                       Row(
                         children: [
-                          const Icon(Icons.fitness_center,
-                              size: 14, color: _ouro),
+                          const Icon(
+                            Icons.fitness_center,
+                            size: 14,
+                            color: _ouro,
+                          ),
                           const SizedBox(width: 4),
-                          Text('STR ${p.forca}',
-                              style: const TextStyle(color: _ouro)),
+                          Text(
+                            'STR ${p.forca}',
+                            style: const TextStyle(color: _ouro),
+                          ),
                           if (morto) ...[
                             const SizedBox(width: 10),
-                            const Text('☠ CAÍDO',
-                                style: TextStyle(
-                                    color: Colors.redAccent,
-                                    fontWeight: FontWeight.bold)),
+                            const Text(
+                              '☠ CAÍDO',
+                              style: TextStyle(
+                                color: Colors.redAccent,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
                           ],
                         ],
                       ),
@@ -377,7 +479,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       decoration: BoxDecoration(
                         borderRadius: BorderRadius.circular(9),
                         gradient: LinearGradient(
-                          colors: [corVida, corVida.withOpacity(0.6)],
+                          colors: [corVida, corVida.withValues(alpha: 0.6)],
                         ),
                       ),
                     ),
@@ -405,7 +507,8 @@ class _HomeScreenState extends State<HomeScreen> {
                     style: OutlinedButton.styleFrom(
                       foregroundColor: Colors.redAccent,
                       side: BorderSide(
-                          color: morto ? Colors.grey : Colors.redAccent),
+                        color: morto ? Colors.grey : Colors.redAccent,
+                      ),
                     ),
                   ),
                 ),
@@ -425,8 +528,10 @@ class _HomeScreenState extends State<HomeScreen> {
                 IconButton(
                   tooltip: 'Matar personagem',
                   onPressed: () => _service.deletarPersonagem(p.id!),
-                  icon: const Icon(Icons.delete_forever,
-                      color: Colors.redAccent),
+                  icon: const Icon(
+                    Icons.delete_forever,
+                    color: Colors.redAccent,
+                  ),
                 ),
               ],
             ),
